@@ -1,8 +1,8 @@
 # Pi OpenAI Blackmagic Compact — current state
 
-As of: 2026-07-30
+As of: 2026-08-02
 
-Candidate: 0.1.0-rc.3
+Candidate: 0.1.0-rc.5
 
 Stage: alpha hardening of the narrow direct-compaction contract.
 
@@ -26,8 +26,15 @@ Normal `before_provider_request` only replays an active persisted checkpoint or 
 
 Replay requires an active-branch checkpoint, exact provider identity, a supported namespace, and exactly one matching contiguous hashed provider-input segment. The opaque provider artifact stays in typed `CompactionEntry.details`; the readable summary stays in Pi's normal compaction record. After a recognized extension compaction, one namespaced custom timeline entry stores only an allowlisted method label. Pi custom entries do not enter LLM context. Forks before a checkpoint cannot replay it.
 
+## Public source lineage
+
+rc.5 uses a sanitized current source lineage. Product behavior derives from reviewed cutoff `9b77aca` and its tree `382232f`; the public root differs only by public-neutral substitutions in two non-runtime review documents. The deterministic transform and its minimal source-lineage receipt are recorded in [release/privacy-lineage.v1.json](../../release/privacy-lineage.v1.json).
+
+Old tag graphs remain public and are not privacy-clean. Old releases remain immutable. `v0.1.0-rc.4` was an unpublished failed attempt.
+
 ## Evidence
 
+- All 26 rc.5 tests pass.
 - Unit and lifecycle tests cover all three protocol adapters and direct current-branch serialization.
 - The serialization corpus includes custom messages, branch and compaction summaries, included and excluded bash messages, assistant tool calls, and tool results.
 - Tests cover checkpoint replay, restart and fork boundaries, redacted telemetry, package contents, and RPC loading from another directory.

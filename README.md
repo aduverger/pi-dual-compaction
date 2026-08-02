@@ -17,7 +17,7 @@ With Blackmagic, Pi still makes and saves that summary. Blackmagic derives the c
 ## Install and use
 
 ```sh
-pi install npm:@hypercarrier/pi-openai-blackmagic-compact@0.1.0-rc.3
+pi install npm:@hypercarrier/pi-openai-blackmagic-compact@0.1.0-rc.5
 # Or test a local checkout:
 pi -e /path/to/pi-openai-blackmagic-compact
 ```
@@ -60,6 +60,12 @@ Pi then owns and persists the returned atomic Session mutation. On success, the 
 
 This boundary is deliberate: Pi owns the conversation record. Blackmagic adds a narrow server checkpoint path. It does not register or wrap providers, observe normal provider calls, create handoffs, or change thresholds.
 
+## Public source lineage
+
+rc.5 uses a sanitized current source lineage. Product behavior derives from reviewed cutoff `9b77aca` and its tree `382232f`; the public root differs only by public-neutral substitutions in two non-runtime review documents. See [the minimal source-lineage receipt](release/privacy-lineage.v1.json).
+
+Old tag graphs remain public and are not privacy-clean. Old releases remain immutable. `v0.1.0-rc.4` was an unpublished failed attempt.
+
 ## Safety and persistence
 
 The local fallback is always available. Blackmagic rejects unsupported surfaces and unsafe replay conditions instead of guessing.
@@ -78,4 +84,4 @@ npm run verify:package
 npm run pack:check
 ```
 
-All 26 rc.3 tests pass. The suite checks provider contracts, direct current-branch serialization, replay and restart boundaries, timeline persistence, redaction, LLM-context exclusion, package contents, and RPC loading.
+All 26 rc.5 tests pass. The suite checks provider contracts, direct current-branch serialization, replay and restart boundaries, timeline persistence, redaction, LLM-context exclusion, package contents, and RPC loading.
