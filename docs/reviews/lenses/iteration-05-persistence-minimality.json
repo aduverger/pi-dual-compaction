@@ -1,0 +1,17 @@
+{
+  "schema": "million-eyes/lens-config/1",
+  "includeDefaults": false,
+  "lenses": [
+    {
+      "schema": "million-eyes/review-lens/1",
+      "id": "alpha_persistence_minimality",
+      "name": "Alpha persistence minimality",
+      "version": "1",
+      "layers": ["module"],
+      "guide": "Review persisted compaction and replay data for one global simplification. This extension is alpha and has zero backward-compatibility requirement. Preserve current compaction, restart, fork, and replay behavior for data written by the current implementation. Ask which persisted fields and compatibility branches are required to validate and replay a checkpoint, and which only preserve an older representation or duplicate derivable facts. Prefer one current schema and the smallest self-validating record. Delete obsolete compatibility or unused lineage when this reduces reasoning and verification surface. Do not weaken identity, digest, active-branch, or exact-segment checks. Do not add migration code, a schema framework, a new module, or generic persistence abstraction. Report one coherent simplification, not a local defect or style issue.",
+      "evidence": {
+        "include": ["src/controller.ts", "src/contract.ts"]
+      }
+    }
+  ]
+}

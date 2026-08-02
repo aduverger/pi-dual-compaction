@@ -1,0 +1,24 @@
+{
+  "schema": "million-eyes/lens-config/1",
+  "includeDefaults": false,
+  "lenses": [
+    {
+      "schema": "million-eyes/review-lens/1",
+      "id": "alpha_interface_test_surface",
+      "name": "Alpha interface and test surface",
+      "version": "1",
+      "layers": ["module"],
+      "guide": "Review whether the alpha extension's tests and product cross the same intentional interface. There is no backward-compatibility requirement. Distinguish the external seam used by Pi from internal seams used by implementation tests. Look for test-only dependencies, options, helpers, or exports that leaked into the external interface only to make internals callable. Apply the deletion test and replace-don't-layer rule: prefer deleting an external concept and keeping a small internal test seam over adding another wrapper or abstraction. Preserve all current user-visible compaction, fallback, replay, timeline, and status behavior. Report one global simplification that improves test leverage and maintenance locality. Do not request more mocks, types, coverage, files, dependency injection, or a test framework. Do not report a local assertion or style issue.",
+      "evidence": {
+        "include": [
+          "src/extension.ts",
+          "src/index.ts",
+          "src/controller.ts",
+          "src/review-adversarial-test.ts",
+          "src/review-controller-lifecycle-test.ts",
+          "src/review-rpc-load-test.ts"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "million-eyes/lens-config/1",
+  "includeDefaults": false,
+  "lenses": [
+    {
+      "schema": "million-eyes/review-lens/1",
+      "id": "alpha_state_ontology_minimization",
+      "name": "Alpha state ontology minimization",
+      "version": "1",
+      "layers": ["module"],
+      "guide": "Review the alpha extension's compaction state ontology for one global simplification. Preserve current behavior, but there is no backward-compatibility requirement. Separate persisted states from telemetry events and derived display labels. Check whether the implementation models states that can never be persisted, duplicates the same fact across representations, or makes maintainers reason about impossible transitions. Prefer deleting unreachable concepts or deriving projections from fewer authoritative states. Report one evidence-linked opportunity that improves coherence and locality without adding a state-machine framework, new layer, or generic abstraction. Do not report naming, formatting, or a small local defect.",
+      "evidence": {
+        "include": ["src/contract.ts", "src/controller.ts"]
+      }
+    }
+  ]
+}
