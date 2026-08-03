@@ -135,7 +135,7 @@ function controllerContext(branch = []) {
 
 test("public request hook replays only its named checkpoint into provider payload, not AgentMessage context", async () => {
   const pi = fakePi();
-  createServerCompactionController(pi, { summaryFactory: () => "local summary" });
+  createServerCompactionController(pi);
   const details = checkpointDetails({ identity: { surface: "openai_api", protocol: "responses_compact_v1", endpoint: "https://api.openai.com/v1", model: "gpt-5", api: "openai-responses" }, opaqueWindow: [{ type: "compaction", encrypted_content: "opaque" }] });
   details.lineage = { firstKeptEntryId: "keep", branchLeafId: "leaf" };
   const original = { model: "gpt-5", input: [{ role: "user", content: [{ type: "input_text", text: "The conversation history before this point was compacted into the following summary:\n\n<summary>\nlocal summary\n</summary>" }] }, { role: "user", content: "new work" }] };
@@ -150,7 +150,7 @@ test("public request hook replays only its named checkpoint into provider payloa
 
 test("replay invalidation preserves Pi's local-summary payload", async () => {
   const pi = fakePi(); const telemetry = [];
-  createServerCompactionController(pi, { summaryFactory: () => "local summary", telemetry: (event) => telemetry.push(event) });
+  createServerCompactionController(pi, { telemetry: (event) => telemetry.push(event) });
   const identity = { surface: "openai_api", protocol: "responses_compact_v1", endpoint: "https://api.openai.com/v1", model: "gpt-5", api: "openai-responses" };
   const details = checkpointDetails({ identity, opaqueWindow: [{ type: "compaction", encrypted_content: "opaque" }] });
   details.replay = { namespace: "pi-openai-blackmagic-compact/1", replacedItemHashes: [sha256({ role: "user", content: "different segment" })] };
@@ -162,7 +162,7 @@ test("replay invalidation preserves Pi's local-summary payload", async () => {
 });
 
 test("only the latest active replay-capable checkpoint can replay", async () => {
-  const pi = fakePi(); createServerCompactionController(pi, { summaryFactory: () => "local summary" });
+  const pi = fakePi(); createServerCompactionController(pi);
   const identity = { surface: "openai_api", protocol: "responses_compact_v1", endpoint: "https://api.openai.com/v1", model: "gpt-5", api: "openai-responses" };
   const original = { model: "gpt-5", input: [{ role: "user", content: "old" }] };
   const remote = { type: "compaction", details: checkpointDetails({ identity, opaqueWindow: [{ type: "compaction", encrypted_content: "opaque" }] }) };

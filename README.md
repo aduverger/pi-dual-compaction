@@ -2,22 +2,22 @@
 
 Direct server compaction for the Pi branch you are using now.
 
-Blackmagic keeps Pi in charge of the readable summary and the Session change. When one of three approved OpenAI-family surfaces can compact the branch, it adds one provider checkpoint. When it cannot, Pi keeps working with its local summary. No ceremony. No provider wrapper. No extension configuration.
+Blackmagic keeps Pi in charge of the Session change. When one of three approved OpenAI-family surfaces validates a remote compaction, it writes an empty Pi summary and adds one provider checkpoint. When it cannot, Pi makes its normal local summary. No ceremony. No provider wrapper. No extension configuration.
 
 For the full current contract, see [docs/current/README.md](docs/current/README.md).
 
 ## A normal day
 
-You work through a long Pi session. You run `/compact`. You want Pi's useful readable summary, but you also want an approved server-side compaction when the current model supports it.
+You work through a long Pi session. You run `/compact`. You want an approved server-side compaction when the current model supports it.
 
-Without Blackmagic, Pi makes its normal local summary. That is always the safe path.
+Without Blackmagic, Pi makes its normal local summary. That is the fallback path.
 
-With Blackmagic, Pi still makes and saves that summary. Blackmagic derives the current branch through Pi's normal serializer on the first compaction attempt. It then uses the approved compact protocol when the active surface and authorization permit it. If any required step fails, Pi uses its local fallback. The extension does not turn a compaction failure into a new kind of session drama.
+With Blackmagic, it first derives the current branch through Pi's normal serializer, then tries the approved compact protocol. A validated remote result writes an empty summary and its opaque checkpoint. If any step fails, the hook returns no result and Pi makes its normal local summary.
 
 ## Install and use
 
 ```sh
-pi install npm:@hypercarrier/pi-openai-blackmagic-compact@0.1.0-rc.5
+pi install npm:@hypercarrier/pi-openai-blackmagic-compact@0.1.0-rc.6
 # Or test a local checkout:
 pi -e /path/to/pi-openai-blackmagic-compact
 ```
@@ -54,27 +54,27 @@ The card can also show Codex v2 or a local fallback with an allowlisted failure 
 
 ## How it works
 
-Pi first creates the readable summary. During `session_before_compact`, Blackmagic derives the authoritative current branch with Pi's canonical conversion and native serializer. It uses that result for an approved server compaction attempt.
+During `session_before_compact`, Blackmagic derives the authoritative current branch with Pi's canonical conversion and native serializer. It uses that result for an approved server compaction attempt without calling Pi's native compaction model.
 
-Pi then owns and persists the returned atomic Session mutation. On success, the package stores one opaque provider window in the normal compaction details. Later requests can replay that checkpoint only when the active branch and approved provider identity match. The timeline card follows `session_compact` as a separate TUI-only custom entry.
+Pi then owns and persists the returned atomic Session mutation. On remote success, its summary is the empty string and the package stores one opaque provider window in normal compaction details. Later requests can replay that checkpoint only when the active branch and approved provider identity match. The timeline card follows `session_compact` as a separate TUI-only custom entry.
 
 This boundary is deliberate: Pi owns the conversation record. Blackmagic adds a narrow server checkpoint path. It does not register or wrap providers, observe normal provider calls, create handoffs, or change thresholds.
 
 ## Public source lineage
 
-rc.5 uses a sanitized current source lineage. Product behavior derives from reviewed cutoff `9b77aca` and its tree `382232f`; the public root differs only by public-neutral substitutions in two non-runtime review documents. See [the minimal source-lineage receipt](release/privacy-lineage.v1.json).
+rc.6 extends the sanitized rc.5 current source lineage. See [the minimal source-lineage receipt](release/privacy-lineage.v1.json).
 
 Old tag graphs remain public and are not privacy-clean. Old releases remain immutable. `v0.1.0-rc.4` was an unpublished failed attempt.
 
 ## Safety and persistence
 
-The local fallback is always available. Blackmagic rejects unsupported surfaces and unsafe replay conditions instead of guessing.
+Pi's native fallback is always available. Blackmagic returns no compaction result for unsupported surfaces or unsafe replay conditions instead of guessing.
 
 Session data can contain opaque provider artifacts. Treat the session file as sensitive history. The visible timeline entry is redacted: it does not persist or render prompts, tools, credentials, endpoints, deployments, models, opaque artifacts, hashes, usage data, or identity objects.
 
 ## Limits
 
-This package is not a promise of lossless compaction or identical provider transport. It supports only the listed surfaces. It has authenticated Codex evidence, but OpenAI and Azure live canaries are still blocked by missing credentials. Pi's readable local summary remains the dependable fallback.
+This package is not a promise of lossless compaction or identical provider transport. It supports only the listed surfaces. It has authenticated Codex evidence, but OpenAI and Azure live canaries are still blocked by missing credentials. Pi's native compaction remains the dependable fallback when a remote result is unavailable.
 
 ## Verify
 
@@ -84,4 +84,4 @@ npm run verify:package
 npm run pack:check
 ```
 
-All 26 rc.5 tests pass. The suite checks provider contracts, direct current-branch serialization, replay and restart boundaries, timeline persistence, redaction, LLM-context exclusion, package contents, and RPC loading.
+The rc.6 suite checks provider contracts, empty-summary remote compaction, direct current-branch serialization, replay and restart boundaries, timeline persistence, redaction, LLM-context exclusion, package contents, and RPC loading.

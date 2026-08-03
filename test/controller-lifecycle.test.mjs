@@ -16,14 +16,14 @@ async function compactCurrentBranch(entries, contextOverrides = {}) {
   let first;
   for (const message of entries) { const id = session.appendMessage(message); first ??= id; }
   const pi = fakePi(); let request;
-  createServerCompactionController(pi, { summaryFactory: () => "readable local summary", fetchImpl: async (_url, options) => { request = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ output: [{ type: "compaction", encrypted_content: "opaque" }], usage: { input_tokens: 3 } }) }; } });
+  createServerCompactionController(pi, { fetchImpl: async (_url, options) => { request = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ output: [{ type: "compaction", encrypted_content: "opaque" }], usage: { input_tokens: 3 } }) }; } });
   const ctx = { model, modelRegistry: { getApiKeyAndHeaders: async () => auth }, sessionManager: session, getSystemPrompt: () => "direct system prompt", thinkingLevel: "high", ...contextOverrides };
   const branchEntries = session.getBranch();
   const result = await pi.handlers.get("session_before_compact")({ preparation: preparation(first), branchEntries, reason: "manual", signal: new AbortController().signal }, ctx);
   return { result, request, pi, ctx, session };
 }
 
-test("direct compaction serializes canonical current-branch messages on its first attempt", async () => {
+test("direct compaction serializes canonical current-branch messages and persists an empty summary", async () => {
   const entries = [
     { role: "user", content: [{ type: "text", text: "ordinary user" }], timestamp: 1 },
     { role: "custom", customType: "handoff", content: "custom handoff", display: false, timestamp: 2 },
@@ -34,8 +34,11 @@ test("direct compaction serializes canonical current-branch messages on its firs
     assistantToolCall(),
     { role: "toolResult", toolCallId: "call-1", toolName: "probe", content: [{ type: "text", text: "tool result" }], isError: false, timestamp: 7 },
   ];
-  const { result, request } = await compactCurrentBranch(entries);
+  const { result, request, session } = await compactCurrentBranch(entries);
   assert.equal(result.compaction.details.state, "remote_applied", JSON.stringify(result));
+  assert.equal(result.compaction.summary, "", "remote compaction must not create a native text summary");
+  session.appendCompaction(result.compaction.summary, result.compaction.firstKeptEntryId, result.compaction.tokensBefore, result.compaction.details, true);
+  assert.equal(session.getBranch().at(-1).summary, "", "Pi's persisted compaction entry must have an empty summary");
   const serialized = JSON.stringify(request);
   assert.match(serialized, /direct system prompt/);
   assert.match(serialized, /custom handoff/);
@@ -62,7 +65,7 @@ test("direct compaction applies the latest persisted checkpoint to the derived b
   first.session.appendCompaction(first.result.compaction.summary, first.result.compaction.firstKeptEntryId, first.result.compaction.tokensBefore, first.result.compaction.details, true);
   first.session.appendMessage({ role: "user", content: [{ type: "text", text: "later branch" }], timestamp: 2 });
   const pi = fakePi(); let request;
-  createServerCompactionController(pi, { summaryFactory: () => "second summary", fetchImpl: async (_url, options) => { request = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ output: [{ type: "compaction", encrypted_content: "opaque-2" }] }) }; } });
+  createServerCompactionController(pi, { fetchImpl: async (_url, options) => { request = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ output: [{ type: "compaction", encrypted_content: "opaque-2" }] }) }; } });
   const branchEntries = first.session.getBranch();
   const result = await pi.handlers.get("session_before_compact")({ preparation: preparation(branchEntries[0].id), branchEntries, signal: new AbortController().signal }, first.ctx);
   assert.equal(result.compaction.details.state, "remote_applied");
@@ -76,7 +79,7 @@ test("post-compaction serialization is verified before the remote request", asyn
     [{ role: "user", content: [{ type: "text", text: "ordinary user" }], timestamp: 1 }],
     { getSystemPrompt: () => { serializationCount += 1; if (serializationCount === 2) throw new Error("synthetic post-compaction serialization failed"); return "direct system prompt"; } },
   );
-  assert.equal(result.compaction.details.failureClass, "post_compaction_segment_unavailable");
+  assert.equal(result, undefined, "Pi must perform its native fallback after a failed continuation preflight");
   assert.equal(request, undefined, "a failed continuation preflight must not send a remote compaction request");
 });
 
@@ -110,11 +113,11 @@ test("timeline entries append once after recognized extension compaction only", 
   assert.equal(renderer({ data: { method: "secret-model" } }, {}, { bg: (_key, text) => text, fg: (_key, text) => text }), undefined);
 });
 
-test("direct compaction is independent of auxiliary provider requests and falls back on unsupported models", async () => {
+test("direct compaction is independent of auxiliary provider requests and defers unsupported models to Pi", async () => {
   const entry = { role: "user", content: [{ type: "text", text: "one" }], timestamp: 1 };
   const { result, pi, ctx } = await compactCurrentBranch([entry]);
   assert.equal(result.compaction.details.state, "remote_applied");
   assert.equal(pi.handlers.has("message_end"), false);
   const unsupported = await pi.handlers.get("session_before_compact")({ preparation: preparation("x"), branchEntries: [], signal: new AbortController().signal }, { ...ctx, model: { ...model, baseUrl: "https://proxy.invalid/v1" } });
-  assert.equal(unsupported.compaction.details.failureClass, "model_or_protocol");
+  assert.equal(unsupported, undefined, "Pi must perform its native fallback for an unsupported model");
 });

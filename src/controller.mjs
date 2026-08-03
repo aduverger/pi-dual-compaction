@@ -1,4 +1,4 @@
-import { buildSessionContext, compact as nativeCompact, convertToLlm } from "@earendil-works/pi-coding-agent";
+import { buildSessionContext, convertToLlm } from "@earendil-works/pi-coding-agent";
 import { azureOpenAIResponsesApi, openAICodexResponsesApi, openAIResponsesApi } from "@earendil-works/pi-ai/compat";
 import { Box, Text } from "@earendil-works/pi-tui";
 import { compactProviderInput } from "./adapters.mjs";
@@ -40,10 +40,6 @@ function rewriteReplay(payload, checkpoint, identity) {
   const next = replaceOneHashSegment(payload.input, replay.replacedItemHashes, checkpoint.details.checkpoint?.artifact);
   return next ? { ...payload, input: next } : undefined;
 }
-async function nativeSummary(event, ctx, auth) {
-  if (!ctx?.model || !auth?.ok) return undefined;
-  return nativeCompact(event.preparation, ctx.model, auth.apiKey, auth.headers, event.customInstructions, event.signal, ctx.thinkingLevel, undefined, auth.env);
-}
 function activeTools(pi) {
   if (typeof pi?.getActiveTools !== "function" || typeof pi?.getAllTools !== "function") throw new Error("Pi tool access is unavailable");
   const names = new Set(pi.getActiveTools());
@@ -78,13 +74,11 @@ async function serializePostCompaction(pi, event, ctx, auth, syntheticCompaction
 export function createServerCompactionController(pi, options = {}) {
   if (!pi?.on || !pi?.registerCommand || !pi?.registerEntryRenderer || !pi?.appendEntry) throw new TypeError("A complete Pi ExtensionAPI is required");
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  const summaryFactory = options.summaryFactory;
   const telemetry = typeof options.telemetry === "function" ? options.telemetry : () => {};
   const emit = (type, data = {}) => { try { telemetry(safeTelemetry(type, data)); } catch {} };
   const methodFor = (ctx) => projectCompactionMethod(ctx?.sessionManager?.getBranch?.());
   const routeFor = (ctx) => describeRemoteRoute(modelIdentity(ctx));
   const appendedCompactions = new Set();
-  const localFallback = (local, failureClass) => ({ compaction: { ...local, details: { ...(local.details ?? {}), schemaVersion: 1, state: "local_fallback", failureClass } } });
 
   pi.registerEntryRenderer(COMPACTION_TIMELINE_ENTRY_TYPE, (entry, _options, theme) => {
     const label = compactionTimelineLabel(entry.data);
@@ -112,31 +106,28 @@ export function createServerCompactionController(pi, options = {}) {
   });
   pi.on("session_before_compact", async (event, ctx) => {
     const canResolveAuth = ctx?.model && typeof ctx?.modelRegistry?.getApiKeyAndHeaders === "function";
-    const auth = canResolveAuth ? await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model) : undefined;
-    const local = summaryFactory ? { summary: await summaryFactory(event.preparation, event, ctx), firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: event.preparation.tokensBefore } : await nativeSummary(event, ctx, auth);
-    if (!local?.summary?.trim()) return undefined;
-    if (!canResolveAuth) return localFallback(local, "auth_unavailable");
+    if (!canResolveAuth) return undefined;
+    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
     const identity = modelIdentity(ctx, auth);
-    if (!auth?.ok || !auth.apiKey) return localFallback(local, "auth_unavailable");
-    if (identity.kind !== "supported") { emit("local_fallback", { identity, failureClass: "model_or_protocol" }); return localFallback(local, "model_or_protocol"); }
+    if (!auth?.ok || !auth.apiKey || identity.kind !== "supported") return undefined;
     let compactBody;
-    try { compactBody = extractPrepared(await serializeBranch(pi, event, ctx, auth)); } catch { emit("local_fallback", { identity, failureClass: "serialization_unavailable" }); return localFallback(local, "serialization_unavailable"); }
-    if (!compactBody) return localFallback(local, "serialization_unavailable");
+    try { compactBody = extractPrepared(await serializeBranch(pi, event, ctx, auth)); } catch { return undefined; }
+    if (!compactBody) return undefined;
     const checkpoint = activeCheckpoint(event.branchEntries ?? ctx.sessionManager?.getBranch?.());
     if (checkpoint) {
       const replayed = rewriteReplay(compactBody.payload, checkpoint, identity);
-      if (!replayed) { emit("local_fallback", { identity, failureClass: "replay_segment_mismatch" }); return localFallback(local, "replay_segment_mismatch"); }
+      if (!replayed) return undefined;
       compactBody = extractPrepared(replayed);
     }
-    const syntheticCompaction = { type: "compaction", id: "pi-openai-blackmagic-compact-pending", parentId: ctx.sessionManager?.getLeafId?.() ?? "", timestamp: Date.now(), summary: local.summary, firstKeptEntryId: local.firstKeptEntryId, tokensBefore: local.tokensBefore };
+    const syntheticCompaction = { type: "compaction", id: "pi-openai-blackmagic-compact-pending", parentId: ctx.sessionManager?.getLeafId?.() ?? "", timestamp: Date.now(), summary: "", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: event.preparation.tokensBefore };
     let postSegment;
-    try { postSegment = await serializePostCompaction(pi, event, ctx, auth, syntheticCompaction); } catch { emit("local_fallback", { identity, failureClass: "post_compaction_segment_unavailable" }); return localFallback(local, "post_compaction_segment_unavailable"); }
+    try { postSegment = await serializePostCompaction(pi, event, ctx, auth, syntheticCompaction); } catch { return undefined; }
     const result = await compactProviderInput({ identity, prepared: compactBody, auth, fetchImpl, signal: event.signal });
-    if (!result.details) { emit("local_fallback", { identity, failureClass: result.failureClass }); return localFallback(local, result.failureClass); }
+    if (!result.details) return undefined;
     result.details.lineage = { firstKeptEntryId: event.preparation.firstKeptEntryId, leafId: ctx.sessionManager?.getLeafId?.() };
     result.details.replay = { namespace: REPLAY_NAMESPACE, replacedItemHashes: postSegment.map((item) => sha256(item)) };
     emit("remote_applied", { identity, ...result.details, checkpoint: result.details.checkpoint });
-    return { compaction: { ...local, details: { ...result.details, local: local.details } } };
+    return { compaction: { summary: "", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: event.preparation.tokensBefore, details: result.details } };
   });
   pi.registerCommand("server-compact", { description: "Show focused server-compaction status or help; it never changes thresholds.", getArgumentCompletions(prefix) { const items = ["status", "help"].filter((x) => x.startsWith(prefix.trim())).map((value) => ({ value, label: value, description: value === "status" ? "Safe current capability status" : "Command usage" })); return items.length ? items : null; }, handler: async (args, ctx) => { const action = args.trim() || "status"; const method = methodFor(ctx); const route = routeFor(ctx); const text = action === "help" ? "Usage: /server-compact [status|help]. It has no agent tool and never owns thresholds." : action === "status" ? [
     `Active branch: ${method}`,
