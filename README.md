@@ -1,87 +1,156 @@
-# @hypercarrier/pi-openai-blackmagic-compact
+# @aduverger/pi-dual-compaction
 
-Direct server compaction for the Pi branch you are using now.
+Provider-native OpenAI compaction without sacrificing portable Pi context.
 
-Blackmagic keeps Pi in charge of the Session change. When one of three approved OpenAI-family surfaces validates a remote compaction, it writes an empty Pi summary and adds one provider checkpoint. When it cannot, Pi makes its normal local summary. No ceremony. No provider wrapper. No extension configuration.
+The extension stores two representations at every supported OpenAI compaction boundary:
 
-For the full current contract, see [docs/current/README.md](docs/current/README.md).
+1. an opaque provider checkpoint for efficient continuation with the same OpenAI model; and
+2. a normal Pi textual summary that remains usable after switching to Anthropic, Gemini, another OpenAI model, or another provider.
 
-## A normal day
+Unsupported models always use Pi's built-in compaction behavior.
 
-You work through a long Pi session. You run `/compact`. You want an approved server-side compaction when the current model supports it.
+## Why
 
-Without Blackmagic, Pi makes its normal local summary. That is the fallback path.
+OpenAI's native compaction artifacts are opaque and provider-specific. They are useful when continuing with the same model, but another provider cannot consume them. Storing only the opaque artifact can therefore discard useful context when a session changes providers.
 
-With Blackmagic, it first derives the current branch through Pi's normal serializer, then tries the approved compact protocol. A validated remote result writes an empty summary and its opaque checkpoint. If any step fails, the hook returns no result and Pi makes its normal local summary.
+This extension first generates Pi's normal portable summary, then obtains the provider checkpoint. OpenAI replay replaces the textual-summary segment with the matching opaque checkpoint. Other providers receive the textual summary unchanged.
 
-## Install and use
+## Requirements
 
-```sh
-pi install npm:@hypercarrier/pi-openai-blackmagic-compact@0.1.0-rc.6
-# Or test a local checkout:
-pi -e /path/to/pi-openai-blackmagic-compact
-```
+- Pi `0.83.0`
+- Node.js 20 or newer
+- One of these official Pi model surfaces for dual compaction:
+  - OpenAI Responses
+  - Azure OpenAI Responses
+  - ChatGPT Codex Responses
 
-Start Pi as usual, then use `/compact` as usual. Blackmagic has no setup command and does not own Pi's compaction thresholds.
+OpenAI-compatible proxies and other API families intentionally fall back to Pi's built-in compaction.
 
-Use this command when you want a short current-state report:
+## Install
 
-```text
-/server-compact status
-```
-
-It sends a transient notification. It does not create a sticky display state.
-
-## Supported surfaces
-
-Blackmagic accepts only these official Responses surfaces:
-
-- OpenAI Responses
-- Azure OpenAI Responses
-- ChatGPT Codex Responses
-
-It does not claim general provider support. Other models and unsupported conditions use Pi's local fallback.
-
-## What you see
-
-After a recognized Blackmagic compaction, Pi adds one durable TUI timeline card beside its built-in compaction record:
-
-```text
-[server compaction] OpenAI/Azure Responses v1 applied
-```
-
-The card can also show Codex v2 or a local fallback with an allowlisted failure class. It stores only that small redacted display result. It does not enter LLM context, so it does not change replay, serializer input, or compaction selection.
-
-## How it works
-
-During `session_before_compact`, Blackmagic derives the authoritative current branch with Pi's canonical conversion and native serializer. It uses that result for an approved server compaction attempt without calling Pi's native compaction model.
-
-Pi then owns and persists the returned atomic Session mutation. On remote success, its summary is the empty string and the package stores one opaque provider window in normal compaction details. Later requests can replay that checkpoint only when the active branch and approved provider identity match. The timeline card follows `session_compact` as a separate TUI-only custom entry.
-
-This boundary is deliberate: Pi owns the conversation record. Blackmagic adds a narrow server checkpoint path. It does not register or wrap providers, observe normal provider calls, create handoffs, or change thresholds.
-
-## Public source lineage
-
-rc.6 extends the sanitized rc.5 current source lineage. See [the minimal source-lineage receipt](release/privacy-lineage.v1.json).
-
-Old tag graphs remain public and are not privacy-clean. Old releases remain immutable. `v0.1.0-rc.4` was an unpublished failed attempt.
-
-## Safety and persistence
-
-Pi's native fallback is always available. Blackmagic returns no compaction result for unsupported surfaces or unsafe replay conditions instead of guessing.
-
-Session data can contain opaque provider artifacts. Treat the session file as sensitive history. The visible timeline entry is redacted: it does not persist or render prompts, tools, credentials, endpoints, deployments, models, opaque artifacts, hashes, usage data, or identity objects.
-
-## Limits
-
-This package is not a promise of lossless compaction or identical provider transport. It supports only the listed surfaces. It has authenticated Codex evidence, but OpenAI and Azure live canaries are still blocked by missing credentials. Pi's native compaction remains the dependable fallback when a remote result is unavailable.
-
-## Verify
+From a checkout:
 
 ```sh
-npm test
-npm run verify:package
+git clone https://github.com/aduverger/pi-dual-compaction.git
+pi install ./pi-dual-compaction
+```
+
+Once published to npm:
+
+```sh
+pi install npm:@aduverger/pi-dual-compaction@0.1.0
+```
+
+For a one-off test:
+
+```sh
+pi -e /absolute/path/to/pi-dual-compaction/src/extension.mjs
+```
+
+Use `/compact` normally. The extension does not replace Pi's thresholds or auto-compaction settings.
+
+Check the active behavior with:
+
+```text
+/dual-compact status
+```
+
+## Behavior
+
+```text
+session_before_compact
+│
+├─ disabled or unsupported model
+│  └─ return control to Pi's built-in compaction
+│
+└─ supported official OpenAI surface
+   ├─ serialize the current branch with Pi's canonical serializer
+   ├─ generate a portable summary with Pi's exported compact()
+   ├─ verify the post-compaction replay segment
+   ├─ request the provider-native checkpoint
+   │  ├─ success: persist portable summary + opaque checkpoint
+   │  └─ failure: persist the already-generated portable Pi result
+   └─ portable-summary failure: return control to Pi's built-in compaction
+```
+
+On later requests:
+
+| Active model | Context representation |
+|---|---|
+| Same supported OpenAI model and endpoint | Opaque provider checkpoint + live tail |
+| Different model, endpoint, or provider | Portable Pi summary + live tail |
+| Switch back before another compaction | Matching OpenAI checkpoint + cross-provider live tail |
+| A later non-native compaction occurred | Latest portable Pi summary; older checkpoint is not replayed |
+
+Checkpoint replay requires an exact model, endpoint, API, branch, and serialized-segment match. If validation fails, the extension leaves Pi's textual-summary payload untouched.
+
+## Configuration
+
+Configuration is optional. Defaults are safe for provider switching:
+
+```text
+~/.pi/agent/extensions/pi-dual-compaction/config.json
+```
+
+```json
+{
+  "enabled": true,
+  "portableSummaryModel": null,
+  "portableSummaryThinkingLevel": "off"
+}
+```
+
+| Setting | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Disable to restore unmodified Pi behavior, including replay. |
+| `portableSummaryModel` | `null` | Optional `provider/model-id`. `null` uses the active model. Model IDs may contain `/`. |
+| `portableSummaryThinkingLevel` | `"off"` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. |
+
+A smaller dedicated model can reduce the extra latency and cost:
+
+```json
+{
+  "portableSummaryModel": "openai/gpt-5-mini",
+  "portableSummaryThinkingLevel": "off"
+}
+```
+
+The configured model must be available in Pi and have valid authentication.
+
+## Cost and usage
+
+Dual compaction performs two model operations on supported OpenAI surfaces:
+
+1. Pi textual summarization; and
+2. OpenAI provider compaction.
+
+The saved compaction usage combines both operations when the provider reports usage. Provider checkpoint metadata also retains the provider's redacted usage counters. Costs are estimated from Pi's current model pricing.
+
+Unsupported providers perform only Pi's normal compaction call.
+
+## Failure and cancellation semantics
+
+- If portable summary generation fails before provider compaction, the hook returns no result and Pi runs its default compaction.
+- If provider compaction fails after a portable summary was generated, that portable result is saved instead of paying for the same summary twice.
+- User cancellation cancels the compaction.
+- Invalid or mismatched checkpoints are never guessed or replayed.
+- Disabling the extension stops both new dual compactions and replay of existing checkpoints; the stored textual summary remains usable.
+
+## Persistence and security
+
+The opaque provider artifact is stored in `CompactionEntry.details`. Session files should therefore be treated as sensitive conversation history. Timeline cards contain only an allowlisted method label and never enter LLM context.
+
+The extension preserves Pi's cumulative `readFiles` and `modifiedFiles` metadata from the portable compaction result.
+
+## Development
+
+```sh
+make check
 npm run pack:check
 ```
 
-The rc.6 suite checks provider contracts, empty-summary remote compaction, direct current-branch serialization, replay and restart boundaries, timeline persistence, redaction, LLM-context exclusion, package contents, and RPC loading.
+The test suite covers OpenAI, Azure, and Codex request contracts; dual persistence; cross-provider context; repeated compaction; replay invalidation; cancellation/failure boundaries; dedicated summary models; session reopen/fork behavior; redaction; packaging; and Pi RPC loading.
+
+## Lineage
+
+The provider checkpoint adapters, strict surface allowlisting, canonical Pi serialization probe, and replay validation were derived from [`deephbz/pi-openai-blackmagic-compact`](https://github.com/deephbz/pi-openai-blackmagic-compact), used under the MIT License. See [NOTICE.md](NOTICE.md).

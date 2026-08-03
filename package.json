@@ -1,35 +1,39 @@
 {
-  "name": "@hypercarrier/pi-openai-blackmagic-compact",
-  "version": "0.1.0-rc.6",
-  "description": "Focused Pi hook extension for OpenAI-family server compaction.",
+  "name": "@aduverger/pi-dual-compaction",
+  "version": "0.1.0",
+  "description": "Provider-native OpenAI compaction with a portable Pi summary for seamless model switching.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deephbz/pi-openai-blackmagic-compact.git"
+    "url": "git+https://github.com/aduverger/pi-dual-compaction.git"
   },
-  "homepage": "https://github.com/deephbz/pi-openai-blackmagic-compact#readme",
+  "homepage": "https://github.com/aduverger/pi-dual-compaction#readme",
   "bugs": {
-    "url": "https://github.com/deephbz/pi-openai-blackmagic-compact/issues"
+    "url": "https://github.com/aduverger/pi-dual-compaction/issues"
   },
-  "author": "Mark Burggraf",
+  "author": "Alexandre Duverger",
   "license": "MIT",
   "type": "module",
   "keywords": [
     "pi-package",
     "compaction",
-    "openai"
+    "openai",
+    "codex",
+    "portable-summary"
   ],
   "engines": {
     "node": ">=20"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.83.0",
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-tui": "0.83.0"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-tui": "*"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "check:syntax": "node --check src/adapters.mjs && node --check src/config.mjs && node --check src/contract.mjs && node --check src/controller.mjs && node --check src/extension.mjs",
     "verify:package": "node scripts/verify-package.mjs",
-    "pack:check": "npm pack --dry-run && npm run verify:package"
+    "pack:check": "npm_config_cache=.npm-cache npm pack --dry-run && npm run verify:package",
+    "check": "npm run check:syntax && npm test && npm run verify:package"
   },
   "publishConfig": {
     "access": "public"
@@ -44,8 +48,8 @@
   },
   "files": [
     "src",
-    "docs/current",
     "README.md",
+    "NOTICE.md",
     "scripts/verify-package.mjs",
     "LICENSE"
   ]

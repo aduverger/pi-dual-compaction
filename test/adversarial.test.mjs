@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { compactProviderInput } from "../src/adapters.mjs";
 import { checkpointDetails, identifySurface, safeTelemetry, sha256 } from "../src/contract.mjs";
-import { createServerCompactionController } from "../src/controller.mjs";
+import { createDualCompactionController } from "../src/controller.mjs";
 
 function codexToken() {
   const payload = Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-test" } })).toString("base64url");
@@ -114,8 +114,19 @@ test("rejects output that is not exactly one encrypted provider compaction item"
 });
 
 test("telemetry never exports provider endpoint or Azure deployment", () => {
-  const checkpoint = checkpointDetails({ identity: identities.azure, opaqueWindow: [{ type: "compaction", encrypted_content: "secret" }] }).checkpoint;
-  const json = JSON.stringify(safeTelemetry("remote_applied", { identity: identities.azure, checkpoint }));
+  const checkpoint = checkpointDetails({
+    identity: identities.azure,
+    opaqueWindow: [{ type: "compaction", encrypted_content: "secret" }],
+    usage: {
+      input_tokens: 10,
+      output_tokens: 3,
+      total_tokens: 13,
+      input_tokens_details: { cached_tokens: 4, cache_write_tokens: 2 },
+      output_tokens_details: { reasoning_tokens: 1 },
+    },
+  });
+  assert.deepEqual(checkpoint.usage, { input_tokens: 10, output_tokens: 3, total_tokens: 13, cached_tokens: 4, cache_write_tokens: 2, reasoning_tokens: 1 });
+  const json = JSON.stringify(safeTelemetry("remote_applied", { identity: identities.azure, checkpoint: checkpoint.checkpoint }));
   assert.equal(json.includes("127.0.0.1"), false);
   assert.equal(json.includes("private-deployment"), false);
   assert.equal(json.includes("secret"), false);
@@ -135,11 +146,11 @@ function controllerContext(branch = []) {
 
 test("public request hook replays only its named checkpoint into provider payload, not AgentMessage context", async () => {
   const pi = fakePi();
-  createServerCompactionController(pi);
+  createDualCompactionController(pi);
   const details = checkpointDetails({ identity: { surface: "openai_api", protocol: "responses_compact_v1", endpoint: "https://api.openai.com/v1", model: "gpt-5", api: "openai-responses" }, opaqueWindow: [{ type: "compaction", encrypted_content: "opaque" }] });
   details.lineage = { firstKeptEntryId: "keep", branchLeafId: "leaf" };
   const original = { model: "gpt-5", input: [{ role: "user", content: [{ type: "input_text", text: "The conversation history before this point was compacted into the following summary:\n\n<summary>\nlocal summary\n</summary>" }] }, { role: "user", content: "new work" }] };
-  details.replay = { namespace: "pi-openai-blackmagic-compact/1", replacedItemHashes: [sha256(original.input[0])] };
+  details.replay = { namespace: "pi-dual-compaction/1", replacedItemHashes: [sha256(original.input[0])] };
   const branch = [{ id: "remote-compact", type: "compaction", summary: "local summary", details }];
   const replayed = await pi.handlers.get("before_provider_request")({ payload: original }, controllerContext(branch));
   assert.equal(replayed.input[0].encrypted_content, "opaque");
@@ -150,10 +161,10 @@ test("public request hook replays only its named checkpoint into provider payloa
 
 test("replay invalidation preserves Pi's local-summary payload", async () => {
   const pi = fakePi(); const telemetry = [];
-  createServerCompactionController(pi, { telemetry: (event) => telemetry.push(event) });
+  createDualCompactionController(pi, { telemetry: (event) => telemetry.push(event) });
   const identity = { surface: "openai_api", protocol: "responses_compact_v1", endpoint: "https://api.openai.com/v1", model: "gpt-5", api: "openai-responses" };
   const details = checkpointDetails({ identity, opaqueWindow: [{ type: "compaction", encrypted_content: "opaque" }] });
-  details.replay = { namespace: "pi-openai-blackmagic-compact/1", replacedItemHashes: [sha256({ role: "user", content: "different segment" })] };
+  details.replay = { namespace: "pi-dual-compaction/1", replacedItemHashes: [sha256({ role: "user", content: "different segment" })] };
   const original = { model: "gpt-5", input: [{ role: "user", content: "local summary remains usable" }] };
   const replayed = await pi.handlers.get("before_provider_request")({ payload: original }, controllerContext([{ type: "compaction", details }]));
   assert.equal(replayed, undefined, "Pi must keep the unchanged provider payload when checkpoint replay is invalid");
@@ -162,11 +173,11 @@ test("replay invalidation preserves Pi's local-summary payload", async () => {
 });
 
 test("only the latest active replay-capable checkpoint can replay", async () => {
-  const pi = fakePi(); createServerCompactionController(pi);
+  const pi = fakePi(); createDualCompactionController(pi);
   const identity = { surface: "openai_api", protocol: "responses_compact_v1", endpoint: "https://api.openai.com/v1", model: "gpt-5", api: "openai-responses" };
   const original = { model: "gpt-5", input: [{ role: "user", content: "old" }] };
   const remote = { type: "compaction", details: checkpointDetails({ identity, opaqueWindow: [{ type: "compaction", encrypted_content: "opaque" }] }) };
-  remote.details.replay = { namespace: "pi-openai-blackmagic-compact/1", replacedItemHashes: [sha256(original.input[0])] };
+  remote.details.replay = { namespace: "pi-dual-compaction/1", replacedItemHashes: [sha256(original.input[0])] };
   const local = { type: "compaction", details: { schemaVersion: 1, state: "local_fallback", failureClass: "timeout" } };
   assert.equal(await pi.handlers.get("before_provider_request")({ payload: original }, controllerContext([remote, local])), undefined);
 

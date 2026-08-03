@@ -10,7 +10,7 @@ export const PROTOCOLS = Object.freeze({
 export const TELEMETRY_EVENTS = Object.freeze([
   "remote_applied", "remote_replayed", "remote_invalidated", "unsupported_surface", "local_fallback",
 ]);
-export const COMPACTION_TIMELINE_ENTRY_TYPE = "pi-openai-blackmagic-compact/compaction-timeline/1";
+export const COMPACTION_TIMELINE_ENTRY_TYPE = "pi-dual-compaction/compaction-timeline/1";
 export const COMPACTION_TIMELINE_METHODS = Object.freeze({
   CODEX: "remote_codex_v2",
   RESPONSES: "remote_responses_v1",
@@ -19,8 +19,8 @@ export const COMPACTION_TIMELINE_METHODS = Object.freeze({
 export const COMPACTION_METHOD_LABELS = Object.freeze({
   none: "no active compaction",
   native: "Pi-native local summary",
-  codex: "remote ChatGPT Codex (codex_compaction_trigger_v2)",
-  responses: "remote OpenAI/Azure (responses_compact_v1)",
+  codex: "dual ChatGPT Codex checkpoint + portable summary",
+  responses: "dual OpenAI/Azure checkpoint + portable summary",
   unsupported: "unsupported surface",
 });
 
@@ -58,9 +58,9 @@ export function compactionTimelineData(entry) {
   return undefined;
 }
 export function compactionTimelineLabel(data) {
-  if (data?.method === COMPACTION_TIMELINE_METHODS.CODEX) return "[server compaction] Codex v2 applied";
-  if (data?.method === COMPACTION_TIMELINE_METHODS.RESPONSES) return "[server compaction] OpenAI/Azure Responses v1 applied";
-  if (data?.method === COMPACTION_TIMELINE_METHODS.LOCAL_FALLBACK && SAFE_FAILURE_CLASSES.has(data.failureClass)) return `[server compaction] Pi local fallback (${data.failureClass})`;
+  if (data?.method === COMPACTION_TIMELINE_METHODS.CODEX) return "[dual compaction] Codex v2 + portable summary applied";
+  if (data?.method === COMPACTION_TIMELINE_METHODS.RESPONSES) return "[dual compaction] OpenAI/Azure + portable summary applied";
+  if (data?.method === COMPACTION_TIMELINE_METHODS.LOCAL_FALLBACK && SAFE_FAILURE_CLASSES.has(data.failureClass)) return `[dual compaction] Pi local fallback (${data.failureClass})`;
   return undefined;
 }
 export function describeRemoteRoute(identity) {
@@ -107,8 +107,20 @@ export function replaceOneHashSegment(input, hashes, replacement) {
 }
 export function safeUsage(usage) {
   if (!usage || typeof usage !== "object") return undefined;
-  const allow = ["input_tokens", "output_tokens", "total_tokens", "cached_tokens"];
-  return Object.fromEntries(allow.filter((key) => Number.isFinite(usage[key])).map((key) => [key, usage[key]]));
+  const allow = ["input_tokens", "output_tokens", "total_tokens", "cached_tokens", "cache_write_tokens", "reasoning_tokens"];
+  const result = Object.fromEntries(allow.filter((key) => Number.isFinite(usage[key])).map((key) => [key, usage[key]]));
+  const inputDetails = usage.input_tokens_details;
+  const outputDetails = usage.output_tokens_details;
+  if (!Number.isFinite(result.cached_tokens) && Number.isFinite(inputDetails?.cached_tokens)) {
+    result.cached_tokens = inputDetails.cached_tokens;
+  }
+  if (!Number.isFinite(result.cache_write_tokens) && Number.isFinite(inputDetails?.cache_write_tokens)) {
+    result.cache_write_tokens = inputDetails.cache_write_tokens;
+  }
+  if (!Number.isFinite(result.reasoning_tokens) && Number.isFinite(outputDetails?.reasoning_tokens)) {
+    result.reasoning_tokens = outputDetails.reasoning_tokens;
+  }
+  return Object.keys(result).length ? result : undefined;
 }
 export function safeTelemetry(type, data = {}) {
   if (!TELEMETRY_EVENTS.includes(type)) throw new TypeError(`unknown telemetry event: ${type}`);

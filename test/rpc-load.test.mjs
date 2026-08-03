@@ -9,10 +9,10 @@ import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 test("Pi 0.83 RPC loader resolves the extension from an unrelated working directory", () => {
-  const cwd = mkdtempSync(join(tmpdir(), "pi-openai-blackmagic-compact-rpc-"));
+  const cwd = mkdtempSync(join(tmpdir(), "pi-dual-compaction-rpc-"));
   try {
     const executable = process.platform === "win32" ? "pi.cmd" : "pi";
-    const input = '{"id":"commands","type":"get_commands"}\n{"id":"status","type":"prompt","message":"/server-compact status"}\n';
+    const input = '{"id":"commands","type":"get_commands"}\n{"id":"status","type":"prompt","message":"/dual-compact status"}\n';
     const result = spawnSync(executable, ["--mode", "rpc", "--no-session", "--no-extensions", "-e", join(root, "src", "extension.mjs")], {
       cwd,
       input,
@@ -22,9 +22,9 @@ test("Pi 0.83 RPC loader resolves the extension from an unrelated working direct
     });
     assert.equal(result.error, undefined, result.error?.message);
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stdout, /"name":"server-compact"/);
-    assert.match(result.stdout, /"message":"Active branch: no active compaction\\nNext \/compact: Pi local fallback — current surface is unsupported/);
-    assert.match(result.stdout, /Guaranteed fallback: Pi native local summary\./);
+    assert.match(result.stdout, /"name":"dual-compact"/);
+    assert.match(result.stdout, /"message":"Enabled: yes\\nActive branch: no active compaction\\nNext \/compact: Pi native compaction/);
+    assert.match(result.stdout, /Portable summary model: current model \(off\)/);
     assert.match(result.stdout, /"id":"status"[^\n]*"success":true/);
     assert.doesNotMatch(result.stderr, /Failed to load extension|Cannot find module/);
   } finally {

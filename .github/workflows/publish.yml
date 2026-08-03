@@ -35,7 +35,7 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
       - run: npm ci
-      - run: npm test
-      - run: npm run verify:package
+      - run: make check
+      - run: npm run pack:check
       - if: inputs.dry_run == false
         run: npm publish --access public --provenance --tag "${{ inputs.tag }}"

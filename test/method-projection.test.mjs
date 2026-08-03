@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { COMPACTION_METHOD_LABELS, COMPACTION_TIMELINE_METHODS, compactionTimelineData, compactionTimelineLabel, describeRemoteRoute, projectCompactionMethod } from "../src/contract.mjs";
-import { createServerCompactionController } from "../src/controller.mjs";
+import { createDualCompactionController } from "../src/controller.mjs";
 
 const remote = (protocol = "responses_compact_v1") => ({ type: "compaction", details: { schemaVersion: 1, state: "remote_applied", identity: { protocol, surface: protocol === "codex_compaction_trigger_v2" ? "chatgpt_codex" : "openai_api" } } });
 test("compaction method projection is active-branch-only and redacts persisted details", () => {
@@ -18,16 +18,16 @@ test("timeline data has one allowlisted redacted field", () => {
   assert.deepEqual(compactionTimelineData(remote()), { method: COMPACTION_TIMELINE_METHODS.RESPONSES });
   assert.deepEqual(compactionTimelineData({ type: "compaction", details: { schemaVersion: 1, state: "local_fallback", failureClass: "timeout" } }), { method: COMPACTION_TIMELINE_METHODS.LOCAL_FALLBACK, failureClass: "timeout" });
   assert.equal(compactionTimelineData({ type: "compaction", details: { schemaVersion: 1, state: "local_fallback", failureClass: "untrusted error" } }), undefined);
-  assert.equal(compactionTimelineLabel({ method: COMPACTION_TIMELINE_METHODS.CODEX }), "[server compaction] Codex v2 applied");
-  assert.equal(compactionTimelineLabel({ method: COMPACTION_TIMELINE_METHODS.LOCAL_FALLBACK, failureClass: "timeout" }), "[server compaction] Pi local fallback (timeout)");
+  assert.equal(compactionTimelineLabel({ method: COMPACTION_TIMELINE_METHODS.CODEX }), "[dual compaction] Codex v2 + portable summary applied");
+  assert.equal(compactionTimelineLabel({ method: COMPACTION_TIMELINE_METHODS.LOCAL_FALLBACK, failureClass: "timeout" }), "[dual compaction] Pi local fallback (timeout)");
   assert.equal(compactionTimelineLabel({ method: "https://secret.invalid" }), undefined);
 });
 test("status uses current model and persisted branch state without readiness state", async () => {
   const handlers = new Map(); let command;
   const pi = { on: (name, handler) => handlers.set(name, handler), registerCommand: (_name, value) => { command = value; }, registerEntryRenderer() {}, appendEntry() {} };
-  createServerCompactionController(pi);
+  createDualCompactionController(pi);
   const notices = []; const ctx = { hasUI: true, model: { provider: "openai", id: "gpt-5", baseUrl: "https://api.openai.com/v1", api: "openai-responses" }, sessionManager: { getBranch: () => [remote()] }, ui: { notify: (...args) => notices.push(args) } };
   await command.handler("status", ctx);
-  assert.match(notices.at(-1)[0], /direct provider compaction/);
+  assert.match(notices.at(-1)[0], /provider checkpoint \+ portable Pi summary/);
   assert.doesNotMatch(notices.at(-1)[0], /Calibration|Wrappers|assertion|capture/i);
 });

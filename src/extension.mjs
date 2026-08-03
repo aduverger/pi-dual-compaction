@@ -1,5 +1,5 @@
-import { createServerCompactionController } from "./controller.mjs";
+import { createDualCompactionController } from "./controller.mjs";
 
-export default function registerServerCompaction(pi) {
-  return createServerCompactionController(pi);
+export default function registerDualCompaction(pi) {
+  return createDualCompactionController(pi);
 }
