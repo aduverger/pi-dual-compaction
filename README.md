@@ -13,7 +13,7 @@ Unsupported models always use Pi's built-in compaction behavior.
 
 OpenAI's native compaction artifacts are opaque and provider-specific. They are useful when continuing with the same model, but another provider cannot consume them. Storing only the opaque artifact can therefore discard useful context when a session changes providers.
 
-This extension first generates Pi's normal portable summary, then obtains the provider checkpoint. OpenAI replay replaces the textual-summary segment with the matching opaque checkpoint. Other providers receive the textual summary unchanged.
+This extension generates Pi's normal portable summary and obtains the provider checkpoint in parallel. OpenAI replay replaces the textual-summary segment with the matching opaque checkpoint. Other providers receive the textual summary unchanged.
 
 ## Requirements
 
@@ -65,12 +65,15 @@ session_before_compact
 │
 └─ supported official OpenAI surface
    ├─ serialize the current branch with Pi's canonical serializer
-   ├─ generate a portable summary with Pi's exported compact()
+   ├─ run in parallel
+   │  ├─ generate a portable summary with Pi's exported compact()
+   │  └─ request the provider-native checkpoint
+   ├─ portable-summary failure: cancel/discard the provider result and use Pi default
    ├─ verify the post-compaction replay segment
-   ├─ request the provider-native checkpoint
-   │  ├─ success: persist portable summary + opaque checkpoint
-   │  └─ failure: persist the already-generated portable Pi result
-   └─ portable-summary failure: return control to Pi's built-in compaction
+   │  └─ failure: cancel/discard the provider result and persist the portable summary
+   └─ provider result
+      ├─ success: persist portable summary + opaque checkpoint
+      └─ failure: persist the already-generated portable Pi result
 ```
 
 On later requests:
@@ -119,20 +122,22 @@ The configured model must be available in Pi and have valid authentication.
 
 ## Cost and usage
 
-Dual compaction performs two model operations on supported OpenAI surfaces:
+Dual compaction performs two model operations concurrently on supported OpenAI surfaces:
 
 1. Pi textual summarization; and
 2. OpenAI provider compaction.
 
-The saved compaction usage combines both operations when the provider reports usage. Provider checkpoint metadata also retains the provider's redacted usage counters. Costs are estimated from Pi's current model pricing.
+Normal latency is therefore closer to the slower operation than the sum of both operations. The saved compaction usage combines both operations when the provider reports usage. Provider checkpoint metadata also retains the provider's redacted usage counters. Costs are estimated from Pi's current model pricing.
 
 Unsupported providers perform only Pi's normal compaction call.
 
 ## Failure and cancellation semantics
 
-- If portable summary generation fails before provider compaction, the hook returns no result and Pi runs its default compaction.
+- If portable summary generation fails, the hook cancels any in-flight provider request, returns no result, and Pi runs its default compaction.
+- If post-compaction replay validation fails, the hook cancels any in-flight provider request and saves the portable result.
+- Cancellation cannot guarantee that a provider request which already completed incurred no usage.
 - If provider compaction fails after a portable summary was generated, that portable result is saved instead of paying for the same summary twice.
-- User cancellation cancels the compaction.
+- User cancellation cancels both operations.
 - Invalid or mismatched checkpoints are never guessed or replayed.
 - Disabling the extension stops both new dual compactions and replay of existing checkpoints; the stored textual summary remains usable.
 
@@ -149,7 +154,7 @@ make check
 npm run pack:check
 ```
 
-The test suite covers OpenAI, Azure, and Codex request contracts; dual persistence; cross-provider context; repeated compaction; replay invalidation; cancellation/failure boundaries; dedicated summary models; session reopen/fork behavior; redaction; packaging; and Pi RPC loading.
+The test suite covers OpenAI, Azure, and Codex request contracts; parallel model operations; dual persistence; cross-provider context; repeated compaction; replay invalidation; cancellation/failure boundaries; dedicated summary models; session reopen/fork behavior; redaction; packaging; and Pi RPC loading.
 
 ## Lineage
 

@@ -111,6 +111,34 @@ test("one authorization snapshot serves both current-model compaction paths", as
   assert.equal(lookups, 1);
 });
 
+test("portable and provider compactions run in parallel", async () => {
+  let releasePortable;
+  const portableGate = new Promise((resolve) => { releasePortable = resolve; });
+  let portableStarted = false;
+  let remoteStarted = false;
+  const pending = compactCurrentBranch(
+    [{ role: "user", content: [{ type: "text", text: "ordinary user" }], timestamp: 1 }],
+    {},
+    {
+      compactImpl: async (input) => {
+        portableStarted = true;
+        await portableGate;
+        return portableResult(input);
+      },
+      fetchImpl: async () => {
+        remoteStarted = true;
+        return { ok: true, status: 200, json: async () => ({ output: [{ type: "compaction", encrypted_content: "opaque" }] }) };
+      },
+    },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const bothStartedBeforePortableFinished = portableStarted && remoteStarted;
+  releasePortable();
+  const { result } = await pending;
+  assert.equal(bothStartedBeforePortableFinished, true);
+  assert.equal(result.compaction.details.state, "remote_applied");
+});
+
 test("repeated compaction applies the latest provider checkpoint", async () => {
   const first = await compactCurrentBranch([{ role: "user", content: [{ type: "text", text: "old branch" }], timestamp: 1 }]);
   first.session.appendCompaction(first.result.compaction.summary, first.result.compaction.firstKeptEntryId, first.result.compaction.tokensBefore, first.result.compaction.details, true);
@@ -129,7 +157,7 @@ test("repeated compaction applies the latest provider checkpoint", async () => {
   assert.doesNotMatch(JSON.stringify(request), /old branch/);
 });
 
-test("failed continuation serialization keeps the already-generated portable compaction", async () => {
+test("failed continuation serialization keeps the portable result and discards the provider result", async () => {
   let serializationCount = 0;
   const { result, request } = await compactCurrentBranch(
     [{ role: "user", content: [{ type: "text", text: "ordinary user" }], timestamp: 1 }],
@@ -137,7 +165,7 @@ test("failed continuation serialization keeps the already-generated portable com
   );
   assert.equal(result.compaction.summary, "portable summary");
   assert.equal(result.compaction.details.state, undefined);
-  assert.equal(request, undefined, "remote compaction must not run without a validated replay segment");
+  assert.ok(request, "provider compaction starts before replay-segment validation");
 });
 
 test("remote failure keeps the portable native result", async () => {
@@ -150,15 +178,32 @@ test("remote failure keeps the portable native result", async () => {
   assert.equal(result.compaction.details.state, undefined);
 });
 
-test("portable summary failure defers to Pi without sending a remote request", async () => {
+test("portable summary failure cancels provider compaction and defers to Pi", async () => {
   let fetchCalls = 0;
+  let remoteAborted = false;
   const { result } = await compactCurrentBranch(
     [{ role: "user", content: [{ type: "text", text: "ordinary user" }], timestamp: 1 }],
     {},
-    { compactImpl: async () => { throw new Error("summary unavailable"); }, fetchImpl: async () => { fetchCalls += 1; } },
+    {
+      compactImpl: async () => { throw new Error("summary unavailable"); },
+      fetchImpl: async (_url, options) => {
+        fetchCalls += 1;
+        return new Promise((_resolve, reject) => {
+          const abort = () => {
+            remoteAborted = true;
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          };
+          if (options.signal.aborted) abort();
+          else options.signal.addEventListener("abort", abort, { once: true });
+        });
+      },
+    },
   );
   assert.equal(result, undefined);
-  assert.equal(fetchCalls, 0);
+  assert.equal(fetchCalls, 1);
+  assert.equal(remoteAborted, true);
 });
 
 test("a configured portable model resolves its own authorization", async () => {

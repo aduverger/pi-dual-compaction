@@ -259,6 +259,18 @@ function isAborted(event, error) {
   return event.signal?.aborted || error?.name === "AbortError" || error?.name === "ABORT_ERR";
 }
 
+function linkedAbortController(parentSignal) {
+  const controller = new AbortController();
+  if (parentSignal?.aborted) controller.abort(parentSignal.reason);
+  else parentSignal?.addEventListener("abort", () => controller.abort(parentSignal.reason), { once: true });
+  return controller;
+}
+
+async function abortAndSettle(controller, promise) {
+  controller.abort();
+  try { await promise; } catch {}
+}
+
 export function createDualCompactionController(pi, options = {}) {
   if (!pi?.on || !pi?.registerCommand || !pi?.registerEntryRenderer || !pi?.appendEntry) {
     throw new TypeError("A complete Pi ExtensionAPI is required");
@@ -343,10 +355,21 @@ export function createDualCompactionController(pi, options = {}) {
       compactBody = extractPrepared(replayed);
     }
 
+    const remoteController = linkedAbortController(event.signal);
+    const portablePromise = generatePortableSummary(event, ctx, auth, config, compactImpl);
+    const remotePromise = compactProviderInput({
+      identity,
+      prepared: compactBody,
+      auth,
+      fetchImpl,
+      signal: remoteController.signal,
+    });
+
     let portable;
     try {
-      portable = await generatePortableSummary(event, ctx, auth, config, compactImpl);
+      portable = await portablePromise;
     } catch (error) {
+      await abortAndSettle(remoteController, remotePromise);
       if (isAborted(event, error)) return { cancel: true };
       if (ctx?.hasUI) ctx.ui.notify(`pi-dual-compaction: ${error.message}; using Pi default compaction`, "warning");
       return undefined;
@@ -356,11 +379,12 @@ export function createDualCompactionController(pi, options = {}) {
     try {
       postSegment = await serializePostCompaction(pi, event, ctx, auth, portable.result.summary);
     } catch (error) {
+      await abortAndSettle(remoteController, remotePromise);
       if (isAborted(event, error)) return { cancel: true };
       return { compaction: portable.result };
     }
 
-    const remote = await compactProviderInput({ identity, prepared: compactBody, auth, fetchImpl, signal: event.signal });
+    const remote = await remotePromise;
     if (!remote.details) {
       if (event.signal?.aborted) return { cancel: true };
       emit("local_fallback", { identity, failureClass: remote.failureClass });
