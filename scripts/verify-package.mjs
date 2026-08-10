@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
 const expected = {
   name: "@aduverger/pi-dual-compaction",
-  version: "0.1.0",
+  version: "0.1.1",
   repository: "git+https://github.com/aduverger/pi-dual-compaction.git",
   homepage: "https://github.com/aduverger/pi-dual-compaction#readme",
   bugs: "https://github.com/aduverger/pi-dual-compaction/issues",

@@ -38,7 +38,7 @@ pi install ./pi-dual-compaction
 Once published to npm:
 
 ```sh
-pi install npm:@aduverger/pi-dual-compaction@0.1.0
+pi install npm:@aduverger/pi-dual-compaction@0.1.1
 ```
 
 For a one-off test:
